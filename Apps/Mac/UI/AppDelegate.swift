@@ -83,7 +83,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @discardableResult
     @MainActor private func openInWindow(url: URL) -> PlayerWindowController {
-        let std = url.standardizedFileURL.path
+        let std = url.isFileURL ? url.standardizedFileURL.path : url.absoluteString
         if let existing = windowController(forOpenPath: std) {
 
             if existing.playerViewController.handleDuplicateMediaOpen(url: url) {

@@ -135,7 +135,7 @@ if ! ./configure \
     --enable-static --disable-shared \
     --disable-programs --disable-doc \
     --disable-avdevice --disable-avfilter \
-    --disable-network --disable-autodetect \
+    --disable-autodetect \
     --disable-everything \
     --enable-bzlib --enable-zlib \
     --enable-libdav1d --enable-libspeex \
@@ -143,8 +143,9 @@ if ! ./configure \
     --enable-decoder="$VDEC,$ADEC,$SDEC" \
     --enable-parser="$PARSERS" \
     --enable-bsf="$BSFS" \
-    --enable-protocol=file \
-    --disable-iconv --disable-lzma --disable-securetransport \
+    --enable-protocol=file,http,https,tcp,tls \
+    --enable-securetransport \
+    --disable-iconv --disable-lzma \
     --disable-audiotoolbox --disable-videotoolbox --disable-coreimage \
     --disable-hwaccels --disable-xlib --disable-vulkan \
     --disable-debug \

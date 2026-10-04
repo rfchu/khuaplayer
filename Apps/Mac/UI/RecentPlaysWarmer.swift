@@ -99,6 +99,8 @@ enum RecentPlaysWarmer {
     static func warmForWelcome(entries: [(path: String, resumeFraction: Double)]) {
         for entry in entries {
             let path = entry.path
+            if path.hasPrefix("http://") || path.hasPrefix("https://") ||
+               path.hasPrefix("rtmp://") || path.hasPrefix("rtsp://") { continue }
             let fraction = entry.resumeFraction
             lock.lock()
             let claimed = ledger.claimPath(path)
@@ -211,6 +213,8 @@ enum RecentPlaysWarmer {
     }
 
     static func warmEntryIntent(path: String, isAutoIntent: Bool = false) {
+        if path.hasPrefix("http://") || path.hasPrefix("https://") ||
+           path.hasPrefix("rtmp://") || path.hasPrefix("rtsp://") { return }
         lock.lock()
         if !isAutoIntent { realHoverSeen = true }
         // Workers query this latest sequence when claiming or registering, so

@@ -2653,6 +2653,13 @@ int Demuxer::open(const std::string& path, bool analyze) {
     static const bool recoveryOff = [] { const char* e = getenv("SP_RESILIENT"); return e && strcmp(e, "0") == 0; }();
     resilientRecoveryEnabled_ = !recoveryOff;
 #endif
+    isNetworkURL_ = path.rfind("http://", 0) == 0 ||
+                    path.rfind("https://", 0) == 0 ||
+                    path.rfind("rtmp://", 0) == 0 ||
+                    path.rfind("rtsp://", 0) == 0;
+    if (isNetworkURL_) {
+        resilientRecoveryEnabled_ = false;
+    }
     analyzed_ = analyze;
     resetRecoverySessionState();
 
@@ -2661,19 +2668,21 @@ int Demuxer::open(const std::string& path, bool analyze) {
 
         if (ret != AVERROR_EXIT && !abortIO_.load()) {
             const int firstErr = ret;
-            diagnoseOpenFailure(path);
-            if (openFailureHint() == spresil::OpenFailureHint::LeadingZeros && !abortIO_.load()) {
-                const int64_t skip = openDiag_.leadingZeroBytes;
-                const int64_t probe = spresil::zeroHeadProbeSize(skip);
-                const int64_t t1 = spNowUs();
-                const int r2 = openInputOnce(path, skip, probe);
-                if (spDebug()) {
-                    fprintf(stderr, "[Demux] 零头重试 skip=%lld probe=%lld → %d (%.1fms)\n",
-                            (long long)skip, (long long)probe, r2, (spNowUs() - t1) / 1000.0);
-                }
-                if (r2 == 0) {
-                    openZeroHeadRetry_ = true;
-                    ret = 0;
+            if (!isNetworkURL_) {
+                diagnoseOpenFailure(path);
+                if (openFailureHint() == spresil::OpenFailureHint::LeadingZeros && !abortIO_.load()) {
+                    const int64_t skip = openDiag_.leadingZeroBytes;
+                    const int64_t probe = spresil::zeroHeadProbeSize(skip);
+                    const int64_t t1 = spNowUs();
+                    const int r2 = openInputOnce(path, skip, probe);
+                    if (spDebug()) {
+                        fprintf(stderr, "[Demux] 零头重试 skip=%lld probe=%lld → %d (%.1fms)\n",
+                                (long long)skip, (long long)probe, r2, (spNowUs() - t1) / 1000.0);
+                    }
+                    if (r2 == 0) {
+                        openZeroHeadRetry_ = true;
+                        ret = 0;
+                    }
                 }
             }
 
@@ -2972,12 +2981,12 @@ int Demuxer::openInputOnce(const std::string& path, int64_t skipInitialBytes, in
     if (!fmtCtx_) { av_dict_free(&opts); return AVERROR(ENOMEM); }
     fmtCtx_->interrupt_callback = { spInterruptCb, &abortIO_ };
     const auto retainedSource = source ? source : openingSource_;
-    const bool attached = attachLocalIO(path, retainedSource);
+    const bool attached = !isNetworkURL_ && attachLocalIO(path, retainedSource);
     if (attached && !openingSource_ && openThread_.load(std::memory_order_acquire)) {
         openingSource_ = localIO_;
         openingSource_->openingViewActive.store(true, std::memory_order_release);
     }
-    if (retainedSource && !attached) {
+    if (!isNetworkURL_ && retainedSource && !attached) {
         // A recovery candidate must never fall back to reopening a replaced path.
         av_dict_free(&opts);
         closeInputOnly();
@@ -2988,6 +2997,14 @@ int Demuxer::openInputOnce(const std::string& path, int64_t skipInitialBytes, in
         av_dict_free(&opts);
         closeInputOnly();
         return AVERROR_EXIT;
+    }
+    if (isNetworkURL_) {
+        av_dict_set(&opts, "timeout", "10000000", 0);
+        av_dict_set(&opts, "rw_timeout", "10000000", 0);
+        av_dict_set(&opts, "reconnect", "1", 0);
+        av_dict_set(&opts, "reconnect_streamed", "1", 0);
+        av_dict_set(&opts, "reconnect_delay_max", "5", 0);
+        av_dict_set(&opts, "user_agent", "KhuaPlayer/0.6.1", 0);
     }
     if (sourceBudget) {
         auto view = captureReadSourceView();
@@ -3085,7 +3102,7 @@ int Demuxer::recheckWeakProbe(const std::string& path, int64_t skipInitialBytes,
         av_dict_set(&opts, "scan_all_pmts", "0", 0);
         if (skipInitialBytes > 0) av_dict_set_int(&opts, "skip_initial_bytes", skipInitialBytes, 0);
         if (pendingFlvIgnorePrevTag_) av_dict_set(&opts, "flv_ignore_prevtag", "1", 0);
-        if (localIO_->size > 0) av_dict_set_int(&opts, "resync_size", std::min<int64_t>(localIO_->size, 64ll * 1024 * 1024), 0);
+        if (localIO_ && localIO_->size > 0) av_dict_set_int(&opts, "resync_size", std::min<int64_t>(localIO_->size, 64ll * 1024 * 1024), 0);
         const int ret = avformat_open_input(&candidate, neutralUrl.c_str(), neutral, &opts);
         av_dict_free(&opts);
         if (ret == 0 && !abortIO_.load()) {

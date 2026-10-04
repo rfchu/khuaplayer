@@ -136,6 +136,7 @@ enum PlayerCommand: Equatable {
     case stepFrame(Int)
     case captureScreenshot
     case openDocument
+    case openURL
     case loadSubtitle
     case showMediaInfo
     case selectSubtitleTrack(Int)
