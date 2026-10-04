@@ -83,7 +83,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @discardableResult
     @MainActor private func openInWindow(url: URL) -> PlayerWindowController {
-        let std = url.standardizedFileURL.path
+        let std = url.isFileURL ? url.standardizedFileURL.path : url.absoluteString
         if let existing = windowController(forOpenPath: std) {
 
             if existing.playerViewController.handleDuplicateMediaOpen(url: url) {
@@ -229,6 +229,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             SPSoftwareUpdater.startIfConfigured()
         }
 #endif
+        DispatchQueue.global(qos: .utility).async {
+            CaptionSRT.pruneNetworkCaptions()
+        }
 #if SP_INTERNAL_BUILD && !SP_APP_STORE
         // Start internal responsiveness diagnostics after launch. The optional
         // self-test injects one delay three seconds later, measured in milliseconds.

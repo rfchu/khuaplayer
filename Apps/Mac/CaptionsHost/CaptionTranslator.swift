@@ -40,10 +40,7 @@ final class CaptionTranslator {
     }
 
     private func makeSession() -> TranslationSession {
-        if #available(macOS 26.4, *) {
-            return TranslationSession(installedSource: source, target: target, preferredStrategy: .highFidelity)
-        }
-        return TranslationSession(installedSource: source, target: target)
+        TranslationSession(installedSource: source, target: target)
     }
 
     /// Create and warm a session on demand. Missing assets throw notInstalled so

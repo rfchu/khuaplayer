@@ -1082,7 +1082,8 @@ static int spDisplaySizeProbeInterrupt(void *opaque) {
 
     ctx->probesize = 4 << 20;
     ctx->max_analyze_duration = AV_TIME_BASE / 2;
-    if (avformat_open_input(&ctx, url.fileSystemRepresentation, nullptr, nullptr) < 0) {
+    const char *sourceStr = url.isFileURL ? url.fileSystemRepresentation : url.absoluteString.UTF8String;
+    if (!sourceStr || avformat_open_input(&ctx, sourceStr, nullptr, nullptr) < 0) {
         return CGSizeZero;
     }
     if (avformat_find_stream_info(ctx, nullptr) < 0) {
@@ -3275,7 +3276,10 @@ static BOOL spProbeStreamEmitsBFrames(NSString *path) {
 }
 
 - (BOOL)openMediaAtURL:(NSURL *)url startAt:(double)seconds error:(NSError **)error {
-    if (!url.isFileURL) {
+    NSString *scheme = url.scheme.lowercaseString;
+    BOOL isWeb = [scheme isEqualToString:@"http"] || [scheme isEqualToString:@"https"] ||
+                 [scheme isEqualToString:@"rtmp"] || [scheme isEqualToString:@"rtsp"];
+    if (!url.isFileURL && !isWeb) {
         if (error) *error = [self makeErrorWithDomain:@"SPURLError" code:-1
                                           description:NSLocalizedString(@"error.localFilesOnly", nil)
                                                 phase:@"open" diagnosis:@"url" terminal:YES];
@@ -3283,7 +3287,8 @@ static BOOL spProbeStreamEmitsBFrames(NSString *path) {
     }
 
     _requestedStartSeconds = MAX(0.0, seconds);
-    return [self openFileAtPath:url.path error:error];
+    NSString *targetPath = url.isFileURL ? url.path : url.absoluteString;
+    return [self openFileAtPath:targetPath error:error];
 }
 
 #pragma mark - Controls
@@ -3486,8 +3491,12 @@ static BOOL spThumbsEnabled(void) {
 }
 
 - (BOOL)timelinePreviewEligible {
-    return spThumbsEnabled() && !_previewMode && !_audioOnlySession.load() &&
-           _currentFilePath != nil;
+    if (!spThumbsEnabled() || _previewMode || _audioOnlySession.load() || _currentFilePath == nil) return NO;
+    if ([_currentFilePath hasPrefix:@"http://"] || [_currentFilePath hasPrefix:@"https://"] ||
+        [_currentFilePath hasPrefix:@"rtmp://"] || [_currentFilePath hasPrefix:@"rtsp://"]) {
+        return NO;
+    }
+    return YES;
 }
 
 - (void)scheduleTimelineThumbnails {

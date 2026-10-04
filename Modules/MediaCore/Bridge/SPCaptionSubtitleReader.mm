@@ -103,11 +103,13 @@ static int64_t spCapSubSeek(void *opaque, int64_t offset, int whence) {
 
 - (void)teardown {
     if (_pkt) av_packet_free(&_pkt);
-    if (_ctx && _ctx->pb) {
-        AVIOContext *pb = _ctx->pb; _ctx->pb = nullptr;
-        av_freep(&pb->buffer); avio_context_free(&pb);
+    if (_ctx) {
+        if (_ctx->pb && (_ctx->flags & AVFMT_FLAG_CUSTOM_IO)) {
+            AVIOContext *pb = _ctx->pb; _ctx->pb = nullptr;
+            av_freep(&pb->buffer); avio_context_free(&pb);
+        }
+        avformat_close_input(&_ctx);
     }
-    if (_ctx) avformat_close_input(&_ctx);
     if (_fd >= 0) { ::close(_fd); _fd = -1; }
 }
 
@@ -185,45 +187,69 @@ static int64_t spCapSubSeek(void *opaque, int64_t offset, int whence) {
         setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_THREAD, IOPOL_THROTTLE);
         _ioPolicyApplied = true;
     }
-    _fd = ::open(_path.fileSystemRepresentation, O_RDONLY | O_CLOEXEC);
-    if (_fd < 0) { [self recordOpenError:AVERROR(errno)]; return NO; }
-    struct stat sb {};
-    if ([self interrupted]) { [self teardown]; return NO; }
-    if (fstat(_fd, &sb) != 0) {
-        [self recordOpenError:AVERROR(errno)]; [self teardown]; return NO;
-    }
-    _fileSize = sb.st_size; _ioPos = 0; _fdPos = 0;
-    struct statfs sfs {};
-    if ([self interrupted]) { [self teardown]; return NO; }
-    bool remote = fstatfs(_fd, &sfs) == 0 &&
-        (!strcmp(sfs.f_fstypename, "smbfs") || !strcmp(sfs.f_fstypename, "afpfs") ||
-         !strcmp(sfs.f_fstypename, "nfs") || !strcmp(sfs.f_fstypename, "webdav"));
-    const int granule = remote ? (1 << 20) : (256 << 10);
-    _ioGranule = granule;
-    uint8_t *iobuf = (uint8_t *)av_malloc(granule);
-    AVIOContext *pb = iobuf ? avio_alloc_context(iobuf, granule, 0, (__bridge void *)self,
-                                                spCapSubRead, nullptr, spCapSubSeek) : nullptr;
-    if (!pb) {
-        av_free(iobuf); [self recordOpenError:AVERROR(ENOMEM)]; [self teardown]; return NO;
-    }
-    AVFormatContext *c = avformat_alloc_context();
-    if (!c) {
-        av_freep(&pb->buffer); avio_context_free(&pb);
-        [self recordOpenError:AVERROR(ENOMEM)]; [self teardown]; return NO;
-    }
-    c->pb = pb; c->flags |= AVFMT_FLAG_CUSTOM_IO;
-    c->interrupt_callback = { spCapSubInterruptCb, (__bridge void *)self };
-    AVDictionary *opts = nullptr;
-    av_dict_set(&opts, "scan_all_pmts", "0", 0);
-    int ret = avformat_open_input(&c, _path.fileSystemRepresentation, nullptr, &opts);
-    av_dict_free(&opts);
-    if (ret < 0) {
-        av_freep(&pb->buffer); avio_context_free(&pb);
-        [self recordOpenError:ret]; [self teardown]; return NO;
-    }
-    _ctx = c;
-    if (pb->error < 0 && pb->error != AVERROR_EOF) {
-        [self recordOpenError:pb->error]; [self teardown]; return NO;
+    BOOL isNetwork = [_path hasPrefix:@"http://"] || [_path hasPrefix:@"https://"] ||
+                     [_path hasPrefix:@"rtmp://"] || [_path hasPrefix:@"rtsp://"];
+    AVFormatContext *c = nullptr;
+    if (isNetwork) {
+        _fileSize = 0; _ioPos = 0; _fdPos = 0; _fd = -1;
+        c = avformat_alloc_context();
+        if (!c) { [self recordOpenError:AVERROR(ENOMEM)]; [self teardown]; return NO; }
+        c->interrupt_callback = { spCapSubInterruptCb, (__bridge void *)self };
+        AVDictionary *opts = nullptr;
+        av_dict_set(&opts, "timeout", "10000000", 0);
+        av_dict_set(&opts, "rw_timeout", "10000000", 0);
+        av_dict_set(&opts, "reconnect", "1", 0);
+        av_dict_set(&opts, "reconnect_streamed", "1", 0);
+        av_dict_set(&opts, "reconnect_delay_max", "5", 0);
+        av_dict_set(&opts, "user_agent", "KhuaPlayer/0.7.0", 0);
+        av_dict_set(&opts, "scan_all_pmts", "0", 0);
+        int ret = avformat_open_input(&c, _path.UTF8String, nullptr, &opts);
+        av_dict_free(&opts);
+        if (ret < 0) {
+            [self recordOpenError:ret]; [self teardown]; return NO;
+        }
+        _ctx = c;
+    } else {
+        _fd = ::open(_path.fileSystemRepresentation, O_RDONLY | O_CLOEXEC);
+        if (_fd < 0) { [self recordOpenError:AVERROR(errno)]; return NO; }
+        struct stat sb {};
+        if ([self interrupted]) { [self teardown]; return NO; }
+        if (fstat(_fd, &sb) != 0) {
+            [self recordOpenError:AVERROR(errno)]; [self teardown]; return NO;
+        }
+        _fileSize = sb.st_size; _ioPos = 0; _fdPos = 0;
+        struct statfs sfs {};
+        if ([self interrupted]) { [self teardown]; return NO; }
+        bool remote = fstatfs(_fd, &sfs) == 0 &&
+            (!strcmp(sfs.f_fstypename, "smbfs") || !strcmp(sfs.f_fstypename, "afpfs") ||
+             !strcmp(sfs.f_fstypename, "nfs") || !strcmp(sfs.f_fstypename, "webdav"));
+        const int granule = remote ? (1 << 20) : (256 << 10);
+        _ioGranule = granule;
+        uint8_t *iobuf = (uint8_t *)av_malloc(granule);
+        AVIOContext *pb = iobuf ? avio_alloc_context(iobuf, granule, 0, (__bridge void *)self,
+                                                    spCapSubRead, nullptr, spCapSubSeek) : nullptr;
+        if (!pb) {
+            av_free(iobuf); [self recordOpenError:AVERROR(ENOMEM)]; [self teardown]; return NO;
+        }
+        c = avformat_alloc_context();
+        if (!c) {
+            av_freep(&pb->buffer); avio_context_free(&pb);
+            [self recordOpenError:AVERROR(ENOMEM)]; [self teardown]; return NO;
+        }
+        c->pb = pb; c->flags |= AVFMT_FLAG_CUSTOM_IO;
+        c->interrupt_callback = { spCapSubInterruptCb, (__bridge void *)self };
+        AVDictionary *opts = nullptr;
+        av_dict_set(&opts, "scan_all_pmts", "0", 0);
+        int ret = avformat_open_input(&c, _path.fileSystemRepresentation, nullptr, &opts);
+        av_dict_free(&opts);
+        if (ret < 0) {
+            av_freep(&pb->buffer); avio_context_free(&pb);
+            [self recordOpenError:ret]; [self teardown]; return NO;
+        }
+        _ctx = c;
+        if (pb->error < 0 && pb->error != AVERROR_EOF) {
+            [self recordOpenError:pb->error]; [self teardown]; return NO;
+        }
     }
     if (_wantStream < 0 || (unsigned)_wantStream >= c->nb_streams ||
         c->streams[_wantStream]->codecpar->codec_type != AVMEDIA_TYPE_SUBTITLE) {

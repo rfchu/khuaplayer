@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import CryptoKit
 
 // Sidecar SRT files and renderer-ready ASS events. Transcription writes
 // Movie.mkv.ai.<src>.srt; translation writes Movie.mkv.ai.<dst>.<src>.srt.
@@ -61,13 +62,92 @@ enum CaptionSRT {
         }
     }
 
+    static var networkCaptionsDirectory: URL {
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        let dir = caches.appendingPathComponent("Captions", isDirectory: true)
+        if !FileManager.default.fileExists(atPath: dir.path) {
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        return dir
+    }
+
+    static func networkMediaKey(for url: URL) -> String {
+        var title = (url.deletingPathExtension().lastPathComponent as NSString).lastPathComponent
+        if title.isEmpty || title == "/" {
+            title = url.host ?? "stream"
+        }
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
+        let safeScalars = title.unicodeScalars.map { allowed.contains($0) ? Character($0) : "_" }
+        let cleanTitle = String(safeScalars).trimmingCharacters(in: CharacterSet(charactersIn: "_"))
+        let prefixTitle = String(cleanTitle.prefix(32))
+        let finalTitle = prefixTitle.isEmpty ? "stream" : prefixTitle
+
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        let volatileKeys: Set<String> = ["token", "sign", "signature", "expires", "auth_key", "t", "timestamp", "key", "access_token"]
+        if let items = components?.queryItems {
+            let filtered = items.filter { !volatileKeys.contains($0.name.lowercased()) }
+            components?.queryItems = filtered.isEmpty ? nil : filtered
+        }
+        let canonical = components?.string ?? url.absoluteString
+        let hash = SHA256.hash(data: Data(canonical.utf8))
+        let hashStr = hash.prefix(6).map { String(format: "%02x", $0) }.joined()
+
+        return "\(hashStr)_\(finalTitle)"
+    }
+
+    static func mediaBaseKey(for mediaURL: URL) -> String {
+        mediaURL.isFileURL ? mediaURL.lastPathComponent : networkMediaKey(for: mediaURL)
+    }
+
     /// Generate the media-adjacent transcription or bilingual sidecar filename.
     static func sidecarURL(for mediaURL: URL, sourceTag: String, targetTag: String?) -> URL {
-        let base = mediaURL.lastPathComponent
+        let base = mediaBaseKey(for: mediaURL)
         var name = base + ".ai"
         if let targetTag { name += "." + targetTag }
         name += "." + sourceTag + ".srt"
-        return mediaURL.deletingLastPathComponent().appendingPathComponent(name)
+        if mediaURL.isFileURL {
+            return mediaURL.deletingLastPathComponent().appendingPathComponent(name)
+        } else {
+            return networkCaptionsDirectory.appendingPathComponent(name)
+        }
+    }
+
+    /// Prune cached network captions if total directory size exceeds maxBytes or files are older than maxAge.
+    static func pruneNetworkCaptions(maxTotalBytes: Int64 = 100 * 1024 * 1024,
+                                     maxAge: TimeInterval = 30 * 86400) {
+        let dir = networkCaptionsDirectory
+        guard let files = try? FileManager.default.contentsOfDirectory(at: dir,
+                                                                       includingPropertiesForKeys: [.contentAccessDateKey, .contentModificationDateKey, .fileSizeKey],
+                                                                       options: [.skipsHiddenFiles]) else { return }
+        let now = Date()
+        struct Entry {
+            let url: URL
+            let size: Int64
+            let date: Date
+        }
+        var entries: [Entry] = []
+        var totalSize: Int64 = 0
+        for file in files {
+            guard file.pathExtension.lowercased() == "srt" else { continue }
+            guard let vals = try? file.resourceValues(forKeys: [.contentAccessDateKey, .contentModificationDateKey, .fileSizeKey]) else { continue }
+            let size = Int64(vals.fileSize ?? 0)
+            let date = vals.contentAccessDate ?? vals.contentModificationDate ?? now
+            if now.timeIntervalSince(date) > maxAge {
+                try? FileManager.default.removeItem(at: file)
+            } else {
+                entries.append(Entry(url: file, size: size, date: date))
+                totalSize += size
+            }
+        }
+        if totalSize > maxTotalBytes {
+            entries.sort { $0.date < $1.date }
+            for entry in entries {
+                try? FileManager.default.removeItem(at: entry.url)
+                totalSize -= entry.size
+                if totalSize <= maxTotalBytes { break }
+            }
+        }
     }
 
     // Validate before every floating-point -> integer boundary, including callers

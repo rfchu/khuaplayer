@@ -301,7 +301,7 @@ final class CaptionEngine: @unchecked Sendable {
         }
         // Configuration completes before publication. Open/read use only readerQueue;
         // abort() is the sole cross-thread write and uses the reader's atomic state.
-        nonisolated(unsafe) let r = SPCaptionAudioReader(path: configuration.mediaURL.path,
+        nonisolated(unsafe) let r = SPCaptionAudioReader(path: configuration.mediaURL.isFileURL ? configuration.mediaURL.path : configuration.mediaURL.absoluteString,
                                      audioStreamIndex: Int32(configuration.audioStreamIndex))
         r.timelineOriginUs = configuration.timelineOriginUs
         setReader(r)
@@ -497,7 +497,7 @@ final class CaptionEngine: @unchecked Sendable {
     private func runEmbeddedTrack() async throws {
         guard let target = configuration.targetLanguage else { throw CaptionTranslator.TranslatorError.unsupported }
         // Use the same serial-queue and atomic-abort contract as the audio reader.
-        nonisolated(unsafe) let sr = SPCaptionSubtitleReader(path: configuration.mediaURL.path,
+        nonisolated(unsafe) let sr = SPCaptionSubtitleReader(path: configuration.mediaURL.isFileURL ? configuration.mediaURL.path : configuration.mediaURL.absoluteString,
                                          subtitleStreamIndex: Int32(configuration.embeddedSubtitleStream))
         sr.timelineOriginUs = configuration.timelineOriginUs
         let cancelled = lock.withLock { subtitleReader = sr; return stopped }
@@ -625,7 +625,7 @@ final class CaptionEngine: @unchecked Sendable {
                                progress: @escaping @Sendable (Double) -> Void) async throws -> Locale? {
         try Task.checkCancellation()
         guard !candidates.isEmpty else { return nil }
-        nonisolated(unsafe) let r = SPCaptionAudioReader(path: mediaURL.path, audioStreamIndex: Int32(audioStreamIndex))
+        nonisolated(unsafe) let r = SPCaptionAudioReader(path: mediaURL.isFileURL ? mediaURL.path : mediaURL.absoluteString, audioStreamIndex: Int32(audioStreamIndex))
         r.timelineOriginUs = timelineOriginUs
         let q = DispatchQueue(label: "dev.khuaplayer.captions.probe", qos: .utility)
         var fallback: Locale?

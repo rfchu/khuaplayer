@@ -616,7 +616,7 @@ final class CaptionsController: NSObject {
     /// Sample embedded text from the beginning in two-minute windows until 300
     /// characters or 20 minutes. Run on the reader queue with playback admission.
     private static func embeddedSample(mediaURL: URL, stream: Int, timelineOriginUs: Int64) async throws -> String? {
-        nonisolated(unsafe) let r = SPCaptionSubtitleReader(path: mediaURL.path, subtitleStreamIndex: Int32(stream))
+        nonisolated(unsafe) let r = SPCaptionSubtitleReader(path: mediaURL.isFileURL ? mediaURL.path : mediaURL.absoluteString, subtitleStreamIndex: Int32(stream))
         r.timelineOriginUs = timelineOriginUs
         let q = DispatchQueue(label: "dev.khuaplayer.captions.sample", qos: .utility)
         let text: String? = try await withTaskCancellationHandler {

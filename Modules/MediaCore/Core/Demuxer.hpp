@@ -194,6 +194,7 @@ public:
     void requestAbort();
 
     bool onRemoteVolume() const { return remoteVolume_; }
+    bool isNetworkURL() const { return isNetworkURL_; }
 
     struct SourceGrowthState {
         uint8_t mode = 0;          // spgrow::Mode：0 Static / 1 Probing / 2 Growing / 3 Final
@@ -426,6 +427,7 @@ private:
     std::string openRecovery_;
     unsigned openStreamCount_ = 0;
     std::set<int> excludedVideo_;
+    bool isNetworkURL_ = false;
 
     mutable std::mutex altVideoMtx_;
     std::shared_ptr<const std::vector<int>> altVideoCands_;

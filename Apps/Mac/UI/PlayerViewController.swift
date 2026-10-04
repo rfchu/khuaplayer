@@ -1337,6 +1337,14 @@ final class PlayerViewController: NSViewController, SPPlayerCoreDelegate, NSMenu
             view.window?.makeKeyAndOrderFront(nil)
         }
 
+        if path.hasPrefix("http://") || path.hasPrefix("https://") ||
+           path.hasPrefix("rtmp://") || path.hasPrefix("rtsp://") {
+            if let url = URL(string: path) {
+                self.open(url: url, incomingSecurityScopedGrant: false)
+            }
+            return
+        }
+
         if Self.recentExistsProbesInFlight.insert(path).inserted {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let exists = FileManager.default.fileExists(atPath: path)
@@ -1462,7 +1470,7 @@ final class PlayerViewController: NSViewController, SPPlayerCoreDelegate, NSMenu
         // One session owns a media path. If another window already has it, focus
         // that window; reopening it here also avoids restarting the session.
         let stdPath = SPMainThreadSentinel.phase("open.normalizePath") {
-            url.standardizedFileURL.path
+            url.isFileURL ? url.standardizedFileURL.path : url.absoluteString
         }
         if let existing = (NSApp.delegate as? AppDelegate)?.windowController(forOpenPath: stdPath),
            existing.playerViewController !== self {
@@ -1505,10 +1513,10 @@ final class PlayerViewController: NSViewController, SPPlayerCoreDelegate, NSMenu
         currentForcedAspectTag = 0
         currentCropTag = 0
         // Install the opening indicator only after openMedia accepts the request.
-        view.window?.title = url.lastPathComponent
+        view.window?.title = url.isFileURL ? url.lastPathComponent : (url.host.map { "\($0) - \(url.lastPathComponent)" } ?? url.absoluteString)
         transitionPresentation(.stateChanged(.opening, presentationSnapshot(core: core)))
 
-        let resumePath = url.path
+        let resumePath = url.isFileURL ? url.path : url.absoluteString
         let resume = SPMainThreadSentinel.phase("open.resumeLookup") {
             SPResumePolicy.startPosition(
                 path: resumePath,
@@ -1532,7 +1540,7 @@ final class PlayerViewController: NSViewController, SPPlayerCoreDelegate, NSMenu
 #if SP_APP_STORE
             // The rejected candidate has its own automatically-started grant;
             // the previous playing session (and its grant) remain untouched.
-            if incomingSecurityScopedGrant { url.stopAccessingSecurityScopedResource() }
+            if incomingSecurityScopedGrant && url.isFileURL { url.stopAccessingSecurityScopedResource() }
 #endif
 
             hasMediaSession = previousHasMediaSession
@@ -1574,7 +1582,8 @@ final class PlayerViewController: NSViewController, SPPlayerCoreDelegate, NSMenu
             return
         }
         // Show feedback until the opening state completes or fails.
-        setIdleHintVisible(true, text: String(format: L("hint.openingFmt"), url.lastPathComponent))
+        let hintName = url.isFileURL ? url.lastPathComponent : (url.host ?? url.absoluteString)
+        setIdleHintVisible(true, text: String(format: L("hint.openingFmt"), hintName))
 #if SP_APP_STORE
         // openMedia has accepted the replacement, so the old media/subtitle
         // session can now relinquish its grants without breaking rollback.
@@ -1582,7 +1591,7 @@ final class PlayerViewController: NSViewController, SPPlayerCoreDelegate, NSMenu
         releaseActiveDocumentGrant()
         // Plain-path recent entries currently have no bookmark-backed grant.
         // Never manufacture a future stopAccessing call for a grant we did not own.
-        activeGrantedDocumentURL = incomingSecurityScopedGrant ? url : nil
+        activeGrantedDocumentURL = (incomingSecurityScopedGrant && url.isFileURL) ? url : nil
 #endif
         playlistScanGeneration &+= 1
 
@@ -1598,8 +1607,12 @@ final class PlayerViewController: NSViewController, SPPlayerCoreDelegate, NSMenu
 
         captionsMediaWillClose(unregisterCore: false)
 #if !SP_APP_STORE
-        SPMainThreadSentinel.phase("open.configureDirectory") {
-            configureDirectorySnapshot(for: url)
+        if url.isFileURL {
+            SPMainThreadSentinel.phase("open.configureDirectory") {
+                configureDirectorySnapshot(for: url)
+            }
+        } else {
+            discoverNetworkCachedSubtitles(for: url)
         }
 #endif
     }
@@ -1608,7 +1621,7 @@ final class PlayerViewController: NSViewController, SPPlayerCoreDelegate, NSMenu
     func handleDuplicateMediaOpen(url: URL,
                                   incomingSecurityScopedGrant: Bool = true) -> Bool {
         let path = SPMainThreadSentinel.phase("open.normalizePath") {
-            url.standardizedFileURL.path
+            url.isFileURL ? url.standardizedFileURL.path : url.absoluteString
         }
         guard openMediaPath == path, hasMediaSession, let core else { return false }
         let replaying = core.state == .ended
@@ -1630,7 +1643,7 @@ final class PlayerViewController: NSViewController, SPPlayerCoreDelegate, NSMenu
         view.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
 
-        if incomingSecurityScopedGrant { spReleaseSecurityScopedGrant(url) }
+        if incomingSecurityScopedGrant && url.isFileURL { spReleaseSecurityScopedGrant(url) }
         return true
     }
 
@@ -1829,6 +1842,31 @@ final class PlayerViewController: NSViewController, SPPlayerCoreDelegate, NSMenu
             }
         } ?? false
         if !accepted { return }
+    }
+
+    private func discoverNetworkCachedSubtitles(for url: URL) {
+        let gen = playlistScanGeneration
+        _Concurrency.Task { @MainActor [weak self] in
+            let sidecars = await CaptionSubtitleFiles.sidecars(for: url)
+            guard let self, self.playlistScanGeneration == gen, !sidecars.isEmpty else { return }
+            self.publishNetworkSubtitleCandidates(sidecars)
+        }
+    }
+
+    private func publishNetworkSubtitleCandidates(_ sidecars: [URL]) {
+        let activeStandardized = activeExternalSubtitleURL?.standardizedFileURL
+        var merged = sidecars
+        for existing in externalSubtitleCandidates {
+            let standardized = existing.standardizedFileURL
+            if sidecars.contains(where: { $0.standardizedFileURL == standardized }) { continue }
+            if standardized == activeStandardized {
+                merged.append(existing)
+            }
+        }
+        directoryAutoSubtitleCandidates = sidecars
+        externalSubtitleCandidates = merged
+        pendingSubtitleAutoload = true
+        maybeRunSubtitleAutoload()
     }
 
     private func scheduleDirectoryScanPoll(for generation: UInt64,
@@ -2646,6 +2684,8 @@ final class PlayerViewController: NSViewController, SPPlayerCoreDelegate, NSMenu
             captureScreenshot()
         case .openDocument:
             presentOpenDocumentPanel()
+        case .openURL:
+            presentOpenURLPanel()
         case .loadSubtitle:
             presentSubtitlePanel()
         case .showMediaInfo:
@@ -2905,6 +2945,10 @@ final class PlayerViewController: NSViewController, SPPlayerCoreDelegate, NSMenu
         perform(.openDocument)
     }
 
+    @objc func openURLAction(_ sender: Any?) {
+        perform(.openURL)
+    }
+
     // Reuse one lazily configured panel per window to avoid repeated service
     // initialization. The panel retains its browsing directory between opens.
     private var reusableOpenPanelStorage: NSOpenPanel?
@@ -3073,6 +3117,36 @@ final class PlayerViewController: NSViewController, SPPlayerCoreDelegate, NSMenu
         openPanelHoverPrewarmWork = nil
     }
 
+    private func presentOpenURLPanel() {
+        guard let window = view.window else { return }
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = L("openURL.title")
+        alert.informativeText = L("openURL.prompt")
+        alert.addButton(withTitle: L("menu.open"))
+        alert.addButton(withTitle: L("clearHistory.confirm.cancel"))
+
+        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 380, height: 24))
+        input.placeholderString = "https://example.com/video.mp4"
+        if let clip = NSPasteboard.general.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           clip.hasPrefix("http://") || clip.hasPrefix("https://") || clip.hasPrefix("rtmp://") || clip.hasPrefix("rtsp://") {
+            input.stringValue = clip
+        }
+        alert.accessoryView = input
+
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn, let self else { return }
+            let text = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let url = URL(string: text),
+                  let scheme = url.scheme?.lowercased(),
+                  ["http", "https", "rtmp", "rtsp"].contains(scheme) else {
+                self.playbackNoticeView().showTransient(L("error.invalidURL"))
+                return
+            }
+            self.open(url: url, incomingSecurityScopedGrant: false)
+        }
+    }
+
     private func presentOpenDocumentPanel() {
         cancelOpenPanelHoverPrewarm() // The explicit open now owns construction.
         if openPanelPresentationActive {
@@ -3195,6 +3269,36 @@ final class PlayerViewController: NSViewController, SPPlayerCoreDelegate, NSMenu
                 return
             }
             self.loadExternalSubtitle(url: url)
+        }
+    }
+
+    @objc func exportSubtitleAction(_ sender: Any?) {
+        presentExportSubtitlePanel()
+    }
+
+    private func presentExportSubtitlePanel() {
+        guard let window = view.window else { return }
+        guard let subtitleURL = activeExternalSubtitleURL ?? externalSubtitleCandidates.first else {
+            playbackNoticeView().showTransient(L("captions.export.noSubtitle"))
+            return
+        }
+        let panel = NSSavePanel()
+        panel.canCreateDirectories = true
+        panel.nameFieldStringValue = subtitleURL.lastPathComponent
+        if let utType = UTType(filenameExtension: subtitleURL.pathExtension) {
+            panel.allowedContentTypes = [utType]
+        }
+        panel.beginSheetModal(for: window) { [weak self] resp in
+            guard resp == .OK, let targetURL = panel.url else { return }
+            do {
+                if FileManager.default.fileExists(atPath: targetURL.path) {
+                    try FileManager.default.removeItem(at: targetURL)
+                }
+                try FileManager.default.copyItem(at: subtitleURL, to: targetURL)
+                self?.playbackNoticeView().showTransient(L("captions.export.success"))
+            } catch {
+                self?.playbackNoticeView().showTransient(error.localizedDescription)
+            }
         }
     }
 

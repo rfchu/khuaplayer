@@ -4,6 +4,18 @@ All notable public releases will be documented here.
 
 ## Unreleased
 
+## 0.7.0
+
+- Added Open URL network video streaming support (`http://`, `https://`, `rtmp://`, `rtsp://`)
+  with native libavformat streaming, reconnect options, and direct URL loading.
+- Added AI subtitle generation and translation for network streaming video.
+- Added sandboxed subtitle caching for network media using canonical URL fingerprints
+  with dynamic parameter/token stripping.
+- Added automatic detection and instant reuse of cached subtitles on re-opening network streams.
+- Added "Export Subtitle..." menu action to save active subtitles as local `.srt` files.
+- Added background LRU and time-based quota pruning for cached network captions.
+- Added full localization for all new network streaming and subtitle export features across all 17 languages.
+
 ## 0.6.1
 
 - Reused existing update checks for installation-level activity and version

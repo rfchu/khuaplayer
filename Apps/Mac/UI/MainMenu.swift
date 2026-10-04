@@ -77,6 +77,8 @@ enum MainMenuBuilder {
         fileItem.submenu = fileMenu
         let openItem = NSMenuItem(title: L("menu.open"), action: #selector(PlayerViewController.openDocumentAction(_:)), keyEquivalent: "o")
         fileMenu.addItem(openItem)
+        let openURLItem = NSMenuItem(title: L("menu.openURL"), action: #selector(PlayerViewController.openURLAction(_:)), keyEquivalent: "u")
+        fileMenu.addItem(openURLItem)
 
         let recentItem = NSMenuItem(title: L("menu.recentPlays"), action: nil, keyEquivalent: "")
         let recentMenu = NSMenu(title: L("menu.recentPlays"))
@@ -202,6 +204,9 @@ enum MainMenuBuilder {
             subMenu.addItem(.separator())
             subMenu.addItem(withTitle: L("menu.captions.generateOrTranslate"),
                             action: #selector(PlayerViewController.generateCaptionsAction(_:)),
+                            keyEquivalent: "")
+            subMenu.addItem(withTitle: L("menu.captions.exportSubtitle"),
+                            action: #selector(PlayerViewController.exportSubtitleAction(_:)),
                             keyEquivalent: "")
         }
 
