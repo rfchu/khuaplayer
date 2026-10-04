@@ -63,6 +63,63 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
     // and return the final one to the welcome state. Without a callback, keep
     // the conservative single-window behavior of stopping and showing welcome.
     var onWillClose: (@MainActor (PlayerWindowController) -> Void)?
+    private var isClosingApproved = false
+    private var isPromptingCaptionClose = false
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        if isClosingApproved {
+            isClosingApproved = false
+            return true
+        }
+
+        if #available(macOS 26.0, *),
+           let mediaURL = playerVC.activeMediaURL,
+           let task = CaptionTaskCenter.shared.task(forMedia: mediaURL),
+           task.isRunning, !task.isSaving, task.canStop {
+
+            if UserDefaults.standard.bool(forKey: "KhuaCaptionsAlwaysRunInBackground") {
+                return true
+            }
+
+            guard !isPromptingCaptionClose else { return false }
+            isPromptingCaptionClose = true
+
+            let alert = NSAlert()
+            alert.messageText = L("captions.windowClose.title", task.mediaName)
+            alert.informativeText = L("captions.windowClose.message")
+            alert.addButton(withTitle: L("captions.windowClose.keepRunning"))
+            alert.addButton(withTitle: L("captions.windowClose.stopAndClose"))
+            alert.addButton(withTitle: L("captions.button.cancel"))
+            alert.showsSuppressionButton = true
+            alert.suppressionButton?.title = L("captions.windowClose.doNotAskAgain")
+
+            alert.beginSheetModal(for: sender) { [weak self, weak sender, weak task] response in
+                guard let self, let sender else { return }
+                self.isPromptingCaptionClose = false
+
+                if alert.suppressionButton?.state == .on {
+                    UserDefaults.standard.set(true, forKey: "KhuaCaptionsAlwaysRunInBackground")
+                }
+
+                switch response {
+                case .alertFirstButtonReturn:
+                    self.isClosingApproved = true
+                    sender.close()
+                case .alertSecondButtonReturn:
+                    if let task {
+                        CaptionTaskCenter.shared.stop(task)
+                    }
+                    self.isClosingApproved = true
+                    sender.close()
+                default:
+                    break
+                }
+            }
+            return false
+        }
+
+        return true
+    }
 
     func windowWillClose(_ notification: Notification) {
         if let onWillClose {

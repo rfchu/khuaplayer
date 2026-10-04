@@ -112,6 +112,7 @@ targets:
       - sdk: AppKit.framework
       - sdk: IOKit.framework
       - sdk: UniformTypeIdentifiers.framework
+      - sdk: UserNotifications.framework
       - sdk: Speech.framework
         weak: true
       - sdk: Translation.framework

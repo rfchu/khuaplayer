@@ -23,6 +23,7 @@ enum CaptionOutputName {
     struct Parsed {
         let mediaFileName: String
         let tags: [String]
+        let isPartial: Bool
     }
 
     private static let languageCodes = Set(Locale.LanguageCode.isoLanguageCodes.map(\.identifier))
@@ -35,12 +36,16 @@ enum CaptionOutputName {
 
     static func parse(_ name: String) -> Parsed? {
         guard (name as NSString).pathExtension.lowercased() == "srt" else { return nil }
-        let base = (name as NSString).deletingPathExtension
+        var base = (name as NSString).deletingPathExtension
+        let isPartial = base.lowercased().hasSuffix(".part")
+        if isPartial {
+            base = (base as NSString).deletingPathExtension
+        }
         guard let marker = base.range(of: ".ai.", options: [.backwards, .caseInsensitive]),
               marker.lowerBound != base.startIndex else { return nil }
         let tags = base[marker.upperBound...].split(separator: ".", omittingEmptySubsequences: false).map(String.init)
         guard (1...2).contains(tags.count), tags.allSatisfy(isFileTag) else { return nil }
-        return Parsed(mediaFileName: String(base[..<marker.lowerBound]), tags: tags)
+        return Parsed(mediaFileName: String(base[..<marker.lowerBound]), tags: tags, isPartial: isPartial)
     }
 }
 
@@ -106,6 +111,19 @@ enum CaptionSRT {
         var name = base + ".ai"
         if let targetTag { name += "." + targetTag }
         name += "." + sourceTag + ".srt"
+        if mediaURL.isFileURL {
+            return mediaURL.deletingLastPathComponent().appendingPathComponent(name)
+        } else {
+            return networkCaptionsDirectory.appendingPathComponent(name)
+        }
+    }
+
+    /// Generate the media-adjacent partial sidecar filename for interrupted or stopped tasks.
+    static func partialSidecarURL(for mediaURL: URL, sourceTag: String, targetTag: String?) -> URL {
+        let base = mediaBaseKey(for: mediaURL)
+        var name = base + ".ai"
+        if let targetTag { name += "." + targetTag }
+        name += "." + sourceTag + ".part.srt"
         if mediaURL.isFileURL {
             return mediaURL.deletingLastPathComponent().appendingPathComponent(name)
         } else {

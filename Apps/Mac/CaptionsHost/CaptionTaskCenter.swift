@@ -124,6 +124,7 @@ final class CaptionTaskCenter {
     /// Enqueue or start immediately. Reuse an existing task for the same media.
     @discardableResult
     func submit(_ task: Task) -> Task {
+        CaptionNotificationManager.shared.requestAuthorizationIfNeeded()
         if let existing = self.task(forMedia: task.mediaURL) { return existing }
         queue.append(task)
         startNextIfIdle()
@@ -257,11 +258,27 @@ final class CaptionTaskCenter {
         // Finished windows need display events and output names, not the ASR
         // words, translation caches, file-source cues or executor graph.
         if let engine = task.engine {
-            task.resultEvents = error is CancellationError ? [] : engine.committedEvents
+            let committed = engine.committedEvents
+            task.resultEvents = committed
             task.resultSidecarURL = engine.sidecarURL
             task.resultTranscriptURL = engine.transcriptURL
             task.resultTargetTag = task.targetTag
             task.resultSourceTag = task.config.map { CaptionLanguageTags.fileTag(forTranscriberLocale: $0.sourceLocale) }
+
+            // If interrupted/cancelled and there is partial content, preserve it as a .part.srt file
+            if error is CancellationError, CaptionSRT.hasContent(committed), let sourceTag = task.resultSourceTag {
+                let partialURL = CaptionSRT.partialSidecarURL(for: task.mediaURL,
+                                                             sourceTag: sourceTag,
+                                                             targetTag: task.resultTargetTag)
+                try? CaptionSRT.write(committed, to: partialURL)
+            } else if error == nil, let sourceTag = task.resultSourceTag {
+                // If completed cleanly, clean up any previous partial file
+                let partialURL = CaptionSRT.partialSidecarURL(for: task.mediaURL,
+                                                             sourceTag: sourceTag,
+                                                             targetTag: task.resultTargetTag)
+                try? FileManager.default.removeItem(at: partialURL)
+            }
+
             engine.onEvents = nil
             engine.onProgress = nil
             engine.onPlaybackWaitChanged = nil
@@ -285,6 +302,7 @@ final class CaptionTaskCenter {
         let listeners = task.listeners.values.filter { $0.owner != nil }
         if listeners.isEmpty, !(error is CancellationError) {
             lastOutcome = (task.mediaName, error)
+            CaptionNotificationManager.shared.postCompletionNotification(for: task, error: error)
         }
         for l in listeners { l.onFinished(task, error) }
         task.listeners.removeAll()
@@ -570,7 +588,11 @@ final class CaptionTaskCenter {
         alert.informativeText = content.message
         alert.addButton(withTitle: content.primaryTitle)
         alert.addButton(withTitle: content.secondaryTitle!)
-        return alert.runModal() == .alertSecondButtonReturn
+        let shouldQuit = alert.runModal() == .alertSecondButtonReturn
+        if shouldQuit, let task = running {
+            stop(task)
+        }
+        return shouldQuit
     }
 
     var quitContent: DialogContent? {
@@ -581,12 +603,24 @@ final class CaptionTaskCenter {
                                  primaryTitle: L("captions.button.cancel"),
                                  secondaryTitle: L("captions.button.quitAnyway"), secondaryEnabled: true)
         }
+        let hasPartial = task.engine.map { CaptionSRT.hasContent($0.committedEvents) } ?? false
+        let msg: String
+        let secTitle: String
+        if task.isSaving {
+            msg = L("captions.quit.savingMessage", task.mediaName)
+            secTitle = L("captions.button.quitAnyway")
+        } else if hasPartial {
+            msg = L("captions.quit.partialMessage", task.mediaName, Self.percentage(task.progress))
+            secTitle = L("captions.button.savePartialAndQuit")
+        } else {
+            msg = L("captions.quit.message", task.mediaName)
+            secTitle = L("captions.button.quitAnyway")
+        }
         return DialogContent(title: task.isSaving ? L("captions.quit.savingTitle")
                                  : L("captions.quit.title", Self.percentage(task.progress)),
-                             message: task.isSaving ? L("captions.quit.savingMessage", task.mediaName)
-                                 : L("captions.quit.message", task.mediaName),
+                             message: msg,
                              primaryTitle: L("captions.button.cancel"),
-                             secondaryTitle: L("captions.button.quitAnyway"), secondaryEnabled: true)
+                             secondaryTitle: secTitle, secondaryEnabled: true)
     }
 
     /// Welcome-window status after the last playback window closes.

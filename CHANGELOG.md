@@ -13,7 +13,9 @@ All notable public releases will be documented here.
   with dynamic parameter/token stripping.
 - Added automatic detection and instant reuse of cached subtitles on re-opening network streams.
 - Added "Export Subtitle..." menu action to save active subtitles as local `.srt` files.
-- Added background LRU and time-based quota pruning for cached network captions.
+- Added background completion macOS system notifications (`UNUserNotificationCenter`) for unattended transcription.
+- Added window close confirmation sheet with options to continue in background or stop and save partial progress.
+- Added partial subtitle preservation (`*.part.srt`) on cancellation, task stop, or application exit.
 - Added full localization for all new network streaming and subtitle export features across all 17 languages.
 
 ## 0.6.1

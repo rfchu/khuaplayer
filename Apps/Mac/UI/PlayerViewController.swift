@@ -4125,9 +4125,13 @@ extension PlayerViewController {
         return false
     }
 
+    var activeMediaURL: URL? {
+        hasMediaSession && currentMediaIndex >= 0 && currentMediaIndex < mediaList.count ? mediaList[currentMediaIndex] : nil
+    }
+
     private func captionsRefreshMenuTitle(_ item: NSMenuItem) {
         guard #available(macOS 26.0, *) else { return }
-        let url = hasMediaSession && currentMediaIndex >= 0 && currentMediaIndex < mediaList.count ? mediaList[currentMediaIndex] : nil
+        let url = activeMediaURL
         item.title = CaptionTaskCenter.shared.menuTitle(forMedia: url)
     }
 
