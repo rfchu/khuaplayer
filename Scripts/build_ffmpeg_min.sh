@@ -183,6 +183,7 @@ STAGED_PREFIX="$DESTDIR$PREFIX"
   -I "$STAGED_PREFIX/include" "$SP_ROOT/Scripts/lib/ffmpeg_capabilities.c" \
   -L "$STAGED_PREFIX/lib" -L "$DAV1D_PREFIX/lib" -L "$SPEEX_PREFIX/lib" \
   -lavformat -lavcodec -lswresample -lavutil -ldav1d -lspeex -lz -lbz2 \
+  -framework CoreFoundation -framework Security \
   -o "$WORK/ffmpeg-capabilities"
 mkdir -p "$STAGED_PREFIX/share"
 "$WORK/ffmpeg-capabilities" > "$STAGED_PREFIX/share/ffmpeg-capabilities.json"

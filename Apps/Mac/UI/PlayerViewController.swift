@@ -3113,7 +3113,7 @@ final class PlayerViewController: NSViewController, SPPlayerCoreDelegate, NSMenu
             guard let url = URL(string: text),
                   let scheme = url.scheme?.lowercased(),
                   ["http", "https", "rtmp", "rtsp"].contains(scheme) else {
-                self.presentNotice(L("error.invalidURL"))
+                self.playbackNoticeView().showTransient(L("error.invalidURL"))
                 return
             }
             self.open(url: url, incomingSecurityScopedGrant: false)

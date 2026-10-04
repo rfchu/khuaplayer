@@ -288,6 +288,8 @@ targets:
         # beside videos in Downloads and Movies without a folder prompt.
         com.apple.security.files.downloads.read-write: true
         com.apple.security.assets.movies.read-write: true
+        # Outgoing network connections for remote URL playback
+        com.apple.security.network.client: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(KHUA_BUNDLE_ID)
@@ -352,6 +354,8 @@ targets:
       - sdk: CoreAudio.framework
       - sdk: CoreImage.framework
       - sdk: IOSurface.framework
+      - sdk: Security.framework
+      - sdk: CoreFoundation.framework
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(KHUA_BUNDLE_ID).MediaCore
