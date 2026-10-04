@@ -205,6 +205,9 @@ enum MainMenuBuilder {
             subMenu.addItem(withTitle: L("menu.captions.generateOrTranslate"),
                             action: #selector(PlayerViewController.generateCaptionsAction(_:)),
                             keyEquivalent: "")
+            subMenu.addItem(withTitle: L("menu.captions.exportSubtitle"),
+                            action: #selector(PlayerViewController.exportSubtitleAction(_:)),
+                            keyEquivalent: "")
         }
 
         let viewItem = NSMenuItem()

@@ -229,6 +229,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             SPSoftwareUpdater.startIfConfigured()
         }
 #endif
+        DispatchQueue.global(qos: .utility).async {
+            CaptionSRT.pruneNetworkCaptions()
+        }
 #if SP_INTERNAL_BUILD && !SP_APP_STORE
         // Start internal responsiveness diagnostics after launch. The optional
         // self-test injects one delay three seconds later, measured in milliseconds.

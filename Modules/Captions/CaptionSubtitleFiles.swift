@@ -36,12 +36,20 @@ enum CaptionSubtitleFiles {
     /// True pauses background I/O in place; cancellation can still terminate the wait.
     static func sidecars(for mediaURL: URL, shouldPause: (@Sendable () -> Bool)? = nil) async -> [URL] {
         await onIOQueue(cancelledResult: []) { cancellation in
-            let directory = mediaURL.deletingLastPathComponent()
-            let prefix = mediaURL.lastPathComponent + ".ai."
+            let directory: URL
+            let baseKey: String
+            if mediaURL.isFileURL {
+                directory = mediaURL.deletingLastPathComponent()
+                baseKey = mediaURL.lastPathComponent
+            } else {
+                directory = CaptionSRT.networkCaptionsDirectory
+                baseKey = CaptionSRT.mediaBaseKey(for: mediaURL)
+            }
+            let prefix = baseKey + ".ai."
             guard waitForIO(cancellation: cancellation, shouldPause: shouldPause),
                   let names = try? FileManager.default.contentsOfDirectory(atPath: directory.path),
                   !cancellation.isCancelled else { return [] }
-            return names.filter { $0.hasPrefix(prefix) && CaptionOutputName.parse($0)?.mediaFileName == mediaURL.lastPathComponent }
+            return names.filter { $0.hasPrefix(prefix) && CaptionOutputName.parse($0)?.mediaFileName == baseKey }
                 .sorted().map { directory.appendingPathComponent($0, isDirectory: false) }
         }
     }
@@ -190,8 +198,9 @@ enum CaptionSubtitleFiles {
     }
 
     private static func outputTags(_ url: URL, mediaURL: URL) -> [String]? {
+        let expectedBase = CaptionSRT.mediaBaseKey(for: mediaURL)
         guard let output = CaptionOutputName.parse(url.lastPathComponent),
-              output.mediaFileName == mediaURL.lastPathComponent else { return nil }
+              output.mediaFileName == expectedBase else { return nil }
         return output.tags
     }
 }

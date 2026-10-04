@@ -198,12 +198,14 @@ static int64_t spCapIOSeek(void *opaque, int64_t offset, int whence) {
 }
 
 - (void)teardown {
-    if (_ctx && _ctx->pb) {
-        // CUSTOM_IO retains ownership of its AVIO buffer and context.
-        AVIOContext *pb = _ctx->pb;
-        _ctx->pb = nullptr;
-        if (pb->buffer) av_freep(&pb->buffer);
-        avio_context_free(&pb);
+    if (_ctx) {
+        if (_ctx->pb && (_ctx->flags & AVFMT_FLAG_CUSTOM_IO)) {
+            // CUSTOM_IO retains ownership of its AVIO buffer and context.
+            AVIOContext *pb = _ctx->pb;
+            _ctx->pb = nullptr;
+            if (pb->buffer) av_freep(&pb->buffer);
+            avio_context_free(&pb);
+        }
     }
     if (_fd >= 0) { ::close(_fd); _fd = -1; }
     if (_swr) swr_free(&_swr);
@@ -227,58 +229,96 @@ static int64_t spCapIOSeek(void *opaque, int64_t offset, int whence) {
         setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_THREAD, IOPOL_THROTTLE);
         _ioPolicyApplied = true;
     }
-    // Use an independent descriptor and custom AVIO with playback-compatible block sizing.
-    int fd = ::open(_path.fileSystemRepresentation, O_RDONLY | O_CLOEXEC);
-    if (fd < 0) { [self recordOpenError:AVERROR(errno)]; return NO; }
-    struct stat sb {};
-    if ([self interrupted]) { ::close(fd); return NO; }
-    if (fstat(fd, &sb) != 0) { int e = errno; ::close(fd); [self recordOpenError:AVERROR(e)]; return NO; }
-    _fileSize = (int64_t)sb.st_size;
-    (void)fcntl(fd, F_RDAHEAD, 1);
-    struct statfs sfs {};
-    if ([self interrupted]) { ::close(fd); return NO; }
-    if (fstatfs(fd, &sfs) == 0) {
-        const char *t = sfs.f_fstypename;
-        _remote = strcmp(t, "smbfs") == 0 || strcmp(t, "afpfs") == 0 ||
-                  strcmp(t, "nfs") == 0 || strcmp(t, "webdav") == 0;
-    }
-    _fd = fd;
-    _ioPos = 0;
-    _fdPos = 0;
-    const int granule = _remote ? (1 << 20) : (256 << 10);
-    uint8_t *iobuf = (uint8_t *)av_malloc((size_t)granule);
-    AVIOContext *pb = iobuf ? avio_alloc_context(iobuf, granule, 0, (__bridge void *)self,
-                                                 spCapIORead, nullptr, spCapIOSeek) : nullptr;
-    if (!pb) { if (iobuf) av_free(iobuf); ::close(fd); _fd = -1; [self recordOpenError:AVERROR(ENOMEM)]; return NO; }
-    AVFormatContext *c = avformat_alloc_context();
-    if (!c) {
-        av_freep(&pb->buffer); avio_context_free(&pb);
-        ::close(fd); _fd = -1; [self recordOpenError:AVERROR(ENOMEM)]; return NO;
-    }
-    c->pb = pb;
-    c->flags |= AVFMT_FLAG_CUSTOM_IO;
-    c->interrupt_callback = { spCapInterruptCb, (__bridge void *)self };
-    AVDictionary *opts = nullptr;
-    av_dict_set(&opts, "scan_all_pmts", "0", 0);
-    int ret = avformat_open_input(&c, _path.fileSystemRepresentation, nullptr, &opts);
-    av_dict_free(&opts);
-    if (ret < 0) {
-        // A failed open frees the format context, but custom AVIO remains caller-owned.
-        av_freep(&pb->buffer); avio_context_free(&pb);
-        ::close(fd); _fd = -1;
-        [self recordOpenError:ret];
-        if (spDebug()) SPLOG(@"[Captions] 音频读取器 open 失败 ret=%d", ret);
-        return NO;
+
+    BOOL isNetwork = [_path hasPrefix:@"http://"] || [_path hasPrefix:@"https://"] ||
+                     [_path hasPrefix:@"rtmp://"] || [_path hasPrefix:@"rtsp://"];
+
+    int fd = -1;
+    AVFormatContext *c = nullptr;
+    AVIOContext *pb = nullptr;
+
+    if (isNetwork) {
+        _remote = true;
+        _fileSize = 0;
+        _fd = -1;
+        _ioPos = 0;
+        _fdPos = 0;
+        c = avformat_alloc_context();
+        if (!c) { [self recordOpenError:AVERROR(ENOMEM)]; return NO; }
+        c->interrupt_callback = { spCapInterruptCb, (__bridge void *)self };
+        AVDictionary *opts = nullptr;
+        av_dict_set(&opts, "timeout", "10000000", 0);
+        av_dict_set(&opts, "rw_timeout", "10000000", 0);
+        av_dict_set(&opts, "reconnect", "1", 0);
+        av_dict_set(&opts, "reconnect_streamed", "1", 0);
+        av_dict_set(&opts, "reconnect_delay_max", "5", 0);
+        av_dict_set(&opts, "user_agent", "KhuaPlayer/0.6.1", 0);
+        av_dict_set(&opts, "scan_all_pmts", "0", 0);
+        int ret = avformat_open_input(&c, _path.UTF8String, nullptr, &opts);
+        av_dict_free(&opts);
+        if (ret < 0) {
+            [self recordOpenError:ret];
+            if (spDebug()) SPLOG(@"[Captions] 网络音频读取器 open 失败 ret=%d", ret);
+            return NO;
+        }
+    } else {
+        // Use an independent descriptor and custom AVIO with playback-compatible block sizing.
+        fd = ::open(_path.fileSystemRepresentation, O_RDONLY | O_CLOEXEC);
+        if (fd < 0) { [self recordOpenError:AVERROR(errno)]; return NO; }
+        struct stat sb {};
+        if ([self interrupted]) { ::close(fd); return NO; }
+        if (fstat(fd, &sb) != 0) { int e = errno; ::close(fd); [self recordOpenError:AVERROR(e)]; return NO; }
+        _fileSize = (int64_t)sb.st_size;
+        (void)fcntl(fd, F_RDAHEAD, 1);
+        struct statfs sfs {};
+        if ([self interrupted]) { ::close(fd); return NO; }
+        if (fstatfs(fd, &sfs) == 0) {
+            const char *t = sfs.f_fstypename;
+            _remote = strcmp(t, "smbfs") == 0 || strcmp(t, "afpfs") == 0 ||
+                      strcmp(t, "nfs") == 0 || strcmp(t, "webdav") == 0;
+        }
+        _fd = fd;
+        _ioPos = 0;
+        _fdPos = 0;
+        const int granule = _remote ? (1 << 20) : (256 << 10);
+        uint8_t *iobuf = (uint8_t *)av_malloc((size_t)granule);
+        pb = iobuf ? avio_alloc_context(iobuf, granule, 0, (__bridge void *)self,
+                                                     spCapIORead, nullptr, spCapIOSeek) : nullptr;
+        if (!pb) { if (iobuf) av_free(iobuf); ::close(fd); _fd = -1; [self recordOpenError:AVERROR(ENOMEM)]; return NO; }
+        c = avformat_alloc_context();
+        if (!c) {
+            av_freep(&pb->buffer); avio_context_free(&pb);
+            ::close(fd); _fd = -1; [self recordOpenError:AVERROR(ENOMEM)]; return NO;
+        }
+        c->pb = pb;
+        c->flags |= AVFMT_FLAG_CUSTOM_IO;
+        c->interrupt_callback = { spCapInterruptCb, (__bridge void *)self };
+        AVDictionary *opts = nullptr;
+        av_dict_set(&opts, "scan_all_pmts", "0", 0);
+        int ret = avformat_open_input(&c, _path.fileSystemRepresentation, nullptr, &opts);
+        av_dict_free(&opts);
+        if (ret < 0) {
+            // A failed open frees the format context, but custom AVIO remains caller-owned.
+            av_freep(&pb->buffer); avio_context_free(&pb);
+            ::close(fd); _fd = -1;
+            [self recordOpenError:ret];
+            if (spDebug()) SPLOG(@"[Captions] 音频读取器 open 失败 ret=%d", ret);
+            return NO;
+        }
     }
     // TS/PS audio parameters may require bounded stream probing.
     c->max_analyze_duration = 2 * AV_TIME_BASE;
     c->probesize = 4 * 1024 * 1024;
     // Subsequent failures must release the format context, custom AVIO and descriptor.
     auto fail = [&](AVFormatContext *fc) {
-        AVIOContext *fpb = fc->pb; fc->pb = nullptr;
-        avformat_close_input(&fc);
-        if (fpb) { av_freep(&fpb->buffer); avio_context_free(&fpb); }
-        ::close(_fd); _fd = -1;
+        if (fc->flags & AVFMT_FLAG_CUSTOM_IO) {
+            AVIOContext *fpb = fc->pb; fc->pb = nullptr;
+            avformat_close_input(&fc);
+            if (fpb) { av_freep(&fpb->buffer); avio_context_free(&fpb); }
+        } else {
+            avformat_close_input(&fc);
+        }
+        if (_fd >= 0) { ::close(_fd); _fd = -1; }
     };
     int infoRet = [self interrupted] ? AVERROR_EXIT : avformat_find_stream_info(c, nullptr);
     int ioError = c->pb ? c->pb->error : 0;

@@ -1611,6 +1611,8 @@ final class PlayerViewController: NSViewController, SPPlayerCoreDelegate, NSMenu
             SPMainThreadSentinel.phase("open.configureDirectory") {
                 configureDirectorySnapshot(for: url)
             }
+        } else {
+            discoverNetworkCachedSubtitles(for: url)
         }
 #endif
     }
@@ -1840,6 +1842,31 @@ final class PlayerViewController: NSViewController, SPPlayerCoreDelegate, NSMenu
             }
         } ?? false
         if !accepted { return }
+    }
+
+    private func discoverNetworkCachedSubtitles(for url: URL) {
+        let gen = playlistScanGeneration
+        _Concurrency.Task { @MainActor [weak self] in
+            let sidecars = await CaptionSubtitleFiles.sidecars(for: url)
+            guard let self, self.playlistScanGeneration == gen, !sidecars.isEmpty else { return }
+            self.publishNetworkSubtitleCandidates(sidecars)
+        }
+    }
+
+    private func publishNetworkSubtitleCandidates(_ sidecars: [URL]) {
+        let activeStandardized = activeExternalSubtitleURL?.standardizedFileURL
+        var merged = sidecars
+        for existing in externalSubtitleCandidates {
+            let standardized = existing.standardizedFileURL
+            if sidecars.contains(where: { $0.standardizedFileURL == standardized }) { continue }
+            if standardized == activeStandardized {
+                merged.append(existing)
+            }
+        }
+        directoryAutoSubtitleCandidates = sidecars
+        externalSubtitleCandidates = merged
+        pendingSubtitleAutoload = true
+        maybeRunSubtitleAutoload()
     }
 
     private func scheduleDirectoryScanPoll(for generation: UInt64,
@@ -3242,6 +3269,36 @@ final class PlayerViewController: NSViewController, SPPlayerCoreDelegate, NSMenu
                 return
             }
             self.loadExternalSubtitle(url: url)
+        }
+    }
+
+    @objc func exportSubtitleAction(_ sender: Any?) {
+        presentExportSubtitlePanel()
+    }
+
+    private func presentExportSubtitlePanel() {
+        guard let window = view.window else { return }
+        guard let subtitleURL = activeExternalSubtitleURL ?? externalSubtitleCandidates.first else {
+            playbackNoticeView().showTransient(L("captions.export.noSubtitle"))
+            return
+        }
+        let panel = NSSavePanel()
+        panel.canCreateDirectories = true
+        panel.nameFieldStringValue = subtitleURL.lastPathComponent
+        if let utType = UTType(filenameExtension: subtitleURL.pathExtension) {
+            panel.allowedContentTypes = [utType]
+        }
+        panel.beginSheetModal(for: window) { [weak self] resp in
+            guard resp == .OK, let targetURL = panel.url else { return }
+            do {
+                if FileManager.default.fileExists(atPath: targetURL.path) {
+                    try FileManager.default.removeItem(at: targetURL)
+                }
+                try FileManager.default.copyItem(at: subtitleURL, to: targetURL)
+                self?.playbackNoticeView().showTransient(L("captions.export.success"))
+            } catch {
+                self?.playbackNoticeView().showTransient(error.localizedDescription)
+            }
         }
     }
 
