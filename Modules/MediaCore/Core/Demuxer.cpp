@@ -3004,7 +3004,7 @@ int Demuxer::openInputOnce(const std::string& path, int64_t skipInitialBytes, in
         av_dict_set(&opts, "reconnect", "1", 0);
         av_dict_set(&opts, "reconnect_streamed", "1", 0);
         av_dict_set(&opts, "reconnect_delay_max", "5", 0);
-        av_dict_set(&opts, "user_agent", "KhuaPlayer/0.6.1", 0);
+        av_dict_set(&opts, "user_agent", "KhuaPlayer/0.7.0", 0);
     }
     if (sourceBudget) {
         auto view = captureReadSourceView();
