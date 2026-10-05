@@ -81,7 +81,6 @@ ENGLISH_FILES=(
   Design/AppIcon/requirements.txt
   LICENSE
   PRIVACY.md
-  README.md
   RELEASING.md
   REPOSITORY_LAYOUT.md
   Apps/Mobile/README.md

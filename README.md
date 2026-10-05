@@ -1,153 +1,131 @@
-<img src="Design/AppIcon/AppIcon.appiconset/AppIcon-128.png" width="96" height="96" alt="Khua Player app icon">
+<p align="center">
+  <img src="Design/AppIcon/AppIcon.appiconset/AppIcon-128.png" width="96" height="96" alt="Khua Player 应用图标">
+</p>
 
 # Khua Player
 
-Khua Player is a lightweight, native video player built for modern macOS and Apple silicon.
+Khua Player 是一款专为现代 macOS 与 Apple Silicon 芯片架构深度定制的高性能、轻量级原生开源视频播放器。
 
-Get smoother motion with frame interpolation, generate and translate subtitles on your Mac,
-and keep watching the playable parts of damaged or unfinished files.
+基于 Metal 原生渲染管线与硬件加速，带来丝滑流畅的高帧率补帧、Mac 本地端侧 AI 语音字幕生成与双语翻译、完备的网络在线流媒体拉流播放、以及独特的残损与未完成下载文件容错恢复能力。
 
-Designed from the ground up for fast, responsive, and efficient playback.
+[**下载 macOS 正式版**](https://khua.app/download) · [官方网站](https://khua.app) · [版本历史](https://khua.app/releases) · [源码编译](#源码编译)
 
-[**Download for macOS**](https://khua.app/download) ·
-[Website](https://khua.app) ·
-[Release history](https://khua.app/releases) ·
-[Build from source](#build-from-source)
+> **平台支持**：Apple Silicon (M1/M2/M3/M4 系列芯片) · macOS 14.0 或更高版本 · 遵循开源许可
 
-Apple silicon · macOS 14 or later · Open source
+---
 
-Download the DMG, open it, and drag **Khua** to **Applications**. The official
-download is Developer ID signed, notarized, and stapled; no extra codec packs
-or Homebrew installation are needed to use it.
+## ✨ 核心特色功能
 
-## More than playback
+### 🌐 网络流媒体在线播放 (Open URL)
+- **直接播放网络视频**：快捷键 `⌘ + U` 或通过菜单【文件】->【打开网络 URL…】，支持流畅播放 `http://`、`https://`、`rtmp://`、`rtsp://` 等在线视频流。
+- **高韧性网络引擎**：集成原生 libavformat 高性能网络 I/O，具备 10 秒超时防护、流式断线智能重连 (`reconnect_streamed`) 与网络抖动缓冲区自适应策略。
 
-- **Smoother motion with Motion+.** Adaptive frame interpolation makes movement
-  smoother. Hold **C** to compare the original and enhanced video side by side.
-- **Subtitles, made on your Mac.** Generate subtitles from video audio, translate
-  generated or existing text subtitles, and save the results as SRT. Processing
-  stays on your Mac. Requires macOS 26; macOS may download a language model first.
-- **Playback for imperfect files.** Khua attempts to recover playable content
-  from damaged or partially downloaded files, marks problem areas on the
-  timeline, and leaves the original file unchanged. Recovery is best-effort;
-  not every damaged or incomplete file can be played.
-- **More from your display.** Watch HDR video, use tone mapping on SDR displays,
-  or give everyday SDR video extra brightness with Brightness+ on compatible displays.
-- **A timeline drawn from your video.** Particle Star Trail takes its colors
-  from the video itself. Liquid and Classic styles are also available.
-- **Preview right in Finder.** Select a supported video and press **Space** for
-  Quick Look playback, including MKV. Set Khua as the default player by file format.
+### 🎙️ 本地端侧 AI 语音字幕与实时翻译
+- **完全在 Mac 本地运行**：基于 Apple 原生 SpeechAnalyzer 语音模型与 Translation 语言转换框架，无需上传音频至任何云端服务器，保护个人隐私。
+- **支持网络流媒体字幕生成**：打破传统播放器只能给本地文件挂载字幕的局限，不仅支持本地视频，更能直接对网络在线流媒体提取音频并生成高精度字幕。
+- **智能指纹哈希与沙盒私有缓存**：生成的字幕自动保存至沙盒私有缓存目录（`~/Library/Caches/.../Captions/`），自动过滤动态 Token / 鉴权参数提取规范化 SHA-256 媒体指纹。再次打开同一在线视频秒级自动挂载已有缓存，免去重复转码等待。
+- **一键导出字幕**：菜单栏【字幕】->【导出字幕…】，支持通过系统保存面板随时将当前生成的字幕另存为标准 `.srt` 文件到本地磁盘。
+- **自动配额管理**：后台内置 LRU 与时间配额清理机制（默认淘汰超过 30 天或超过 100MB 缓存），保持磁盘整洁。
 
-Motion+ requires macOS 26 and a supported Mac. See [Requirements](#requirements)
-for feature availability.
+### 🔔 智能后台转码与系统通知联动
+- **关闭窗口感知与控制**：关闭正在转码的播放窗口时，系统将弹出轻量交互确认，用户可选择【后台继续生成】或【停止生成并保存已识别内容】；勾选“不再提示”后可静默转入后台无感运行。
+- **后台完成系统通知**：当转码在后台跑完时，通过 macOS 通知中心（`UNUserNotificationCenter`）推送系统横幅，点击通知即可自动激活 Khua 并调出视频直接观看。
+- **断点草稿数据保护**：在任务被取消、用户主动停止或退出应用时，已识别出的片段会自动安全落盘为伴生草稿文件（`*.part.srt`），彻底杜绝转码进度丢失。
 
-## Everyday essentials
+### ⚡ Motion+ 动态插帧技术
+- **自适应高刷补帧**：利用先进插帧算法将低帧率电影与视频平滑增强至高帧率，在 MacBook Pro 及 ProMotion 屏幕上呈现丝滑观感。
+- **原位画质即时对比**：播放中只需长按键盘 **C** 键，即可直观对比原画与 Motion+ 插帧画质差异。
 
-- **Broad format support:** MKV, MP4, MOV, WebM, AVI, MPEG-TS, FLV, WMV, and common
-  audio formats, with hardware decoding where supported and a bundled fallback.
-- **Subtitles that travel with your video:** embedded and external text subtitles,
-  including subtitle files in the same folder. Khua does not search for or download subtitles.
-- **Natural-sounding speed control:** hold Space for Turbo playback, then release
-  to return to normal speed. Voices keep their pitch.
-- **Native multichannel audio:** 5.1 and 7.1 output on supported audio devices.
-- **A familiar Mac experience:** playback resume, frame stepping, screenshots,
-  multiple playback windows, and an interface available in 17 languages.
-- **Private by design:** no account, ads, or playback analytics. Your media and
-  playback history stay on your Mac. See the [privacy policy](PRIVACY.md).
+### 🛠️ 残损与未完成文件容错播放
+- **受损容器文件修复**：针对网络下载中断、录屏异常崩溃导致丢失关键 `moov` 头的 MP4/MOV 文件，以及索引断裂的 MKV/AVI/TS，通过结构推断引擎重建时间索引并尝试恢复播放。
+- **时间轴损伤标注**：在时间轴进度条上直观用色彩高亮标记出损坏或无法解码的数据坏块，播放时平滑跳过而不闪退。
 
-## Requirements
+### 🎨 画面自适应粒子星轨时间轴
+- **Star Trail 粒子星轨**：进度条上的星轨粒子色彩会实时从当前播放画面中取样计算，呈现梦幻的光影流转效果。
+- **多种视觉风格**：同时提供现代流体（Liquid）与经典极简（Classic）时间轴风格随心切换。
 
-| Feature | Requirements |
-|---|---|
-| Basic playback and Quick Look | Apple silicon Mac running macOS 14 or later |
-| Motion+ frame interpolation | macOS 26 and a Mac supporting system frame-rate conversion |
-| Subtitle generation and translation | macOS 26; language availability depends on macOS, which may download language models on first use |
-| Brightness+ | A compatible display with available extended brightness headroom |
+### ☀️ 高动态色彩显示与 Brightness+
+- **完整 HDR / Dolby Vision 支持**：准确还原原画动态范围与广色域（P3/Rec.2020）。
+- **SDR 动态色调映射**：普通 SDR 屏幕上播放 HDR 视频无需担心发灰泛白。
+- **Brightness+ 扩展亮度增强**：在支持 XDR / EDR 的 Mac 屏幕上智能释放屏幕头室亮度，提升普通画面在强光环境下的通透度与可视性。
 
-Intel Macs are not supported. iPhone and iPad support is planned, but only the
-Mac app is currently available.
+---
 
-## Build from source
+## ⌨️ 常用快捷键
 
-Building requires an Apple silicon Mac and Xcode with the macOS 26.4 SDK or later.
-You do not need the build tools to use the [official download](https://khua.app/download).
+| 操作 | 快捷键 | 说明 |
+| :--- | :--- | :--- |
+| **打开文件** | `⌘ + O` | 打开本地视频或音频文件 |
+| **打开网络 URL** | `⌘ + U` | 输入并播放网络流媒体链接 |
+| **导出字幕** | 菜单【字幕】->【导出字幕…】 | 将当前加载或生成的字幕另存为 `.srt` |
+| **播放 / 暂停** | `Space`（短按） | 切换播放与暂停状态 |
+| **Turbo 极速播放** | `Space`（长按） | 保持原调的高倍速播放，松手恢复原速 |
+| **快进 / 快退** | `→` / `←` | 默认跳转 5 秒 |
+| **帧进 / 帧退** | `.` / `,` | 逐帧精确定位播放 |
+| **全屏切换** | `⌘ + F` | 进入 / 退出全屏模式 |
+| **Motion+ 效果对比** | `C`（长按） | 长按查看插帧前原画，松手恢复 Motion+ |
+| **音量调节** | `↑` / `↓` | 调节系统播放音量 |
+| **关闭窗口** | `⌘ + W` | 关闭播放窗口（有转码任务时将提示后台运行） |
+| **退出应用** | `⌘ + Q` | 退出播放器（自动安全保存未完成的字幕草稿） |
 
-Install the build tools once:
+---
 
+## 📋 系统要求
+
+| 功能模块 | 最低系统与硬件要求 |
+| :--- | :--- |
+| **基础播放 & Finder Quick Look 快速预览** | Apple Silicon 芯片 Mac · macOS 14.0 或更高版本 |
+| **Motion+ 动态插帧** | macOS 26.0 或更高版本 · 支持系统级帧率转换的 Mac 机型 |
+| **AI 语音字幕生成与双语翻译** | macOS 26.0 或更高版本（初次使用特定语种时由系统自动下载本地语言模型） |
+| **Brightness+ 高动态亮度** | 具备 EDR / XDR 扩展亮度头室特性的 Liquid 视网膜 XDR 显示屏 |
+
+> 注：暂不支持 Intel 架构 Mac。iOS / iPadOS 版本目前在规划中。
+
+---
+
+## 🛠️ 源码编译
+
+构建项目需要搭载 Apple Silicon 芯片的 Mac 以及 Xcode（包含 macOS 26.4 SDK 或更高版本）。
+
+### 1. 安装编译工具链
+首次构建需安装基础构建依赖工具：
 ```bash
 brew install xcodegen meson ninja cmake pkg-config
 ```
 
-Build the application:
-
+### 2. 编译项目
+在项目根目录下执行编译脚本：
 ```bash
-./Apps/Mac/Scripts/build.sh          # Debug
-./Apps/Mac/Scripts/build.sh Release  # optimized local build
+# 编译 Debug 开发版本
+./Apps/Mac/Scripts/build.sh
+
+# 编译全量优化、自包含的 Release 发布版本
+./Apps/Mac/Scripts/build.sh Release
 ```
+- 项目采用 [`Apps/Mac/project.yml`](Apps/Mac/project.yml) 进行标准化工程管理，构建脚本会自动通过 `xcodegen` 生成对应的 `KhuaPlayer.xcodeproj`。
+- 首次编译会自动拉取经哈希校验固化的精简底层依赖（FFmpeg、dav1d、Speex、libass 等）并完成静态链接。
+- Release 构建产物将自动部署于根目录下的 `./Khua.app`。
 
-Run these commands from the repository root. `Scripts/build.sh` remains a
-compatibility entry point with the same arguments and environment settings.
-The Mac project definition is [`Apps/Mac/project.yml`](Apps/Mac/project.yml);
-the build generates `Apps/Mac/KhuaPlayer.xcodeproj`. Edit the definition, not
-the generated Xcode project.
-
-The first build downloads checksum-pinned dependency source archives, builds
-them with the macOS SDK toolchain, generates the Xcode project, packages the
-runtime libraries, signs the app ad hoc, and verifies its Mach-O dependency
-closure. Subsequent builds reuse validated dependency stamps.
-
-Run the app, optionally opening a local media file through the macOS document
-open event:
-
+### 3. 运行调试
 ```bash
+# 启动播放器
 ./Scripts/run.sh
+
+# 启动并直接打开特定媒体文件
 ./Scripts/run.sh /path/to/video.mkv
 ```
 
-The generated app is located at
-`.build/Build/Products/<configuration>/Khua.app`. Release builds also deploy
-the verified app to `Khua.app` at the repository root; Debug builds leave that
-copy unchanged. Both locations are ignored by Git. Local Release builds are
-still ad-hoc signed, not distribution-ready artifacts.
+---
 
-## Repository scope
+## 🔒 隐私与安全性
 
-This repository contains the shipping application source and the reproducible
-build and packaging recipes. Large media fixtures, benchmark suites, internal
-experiments, generated Xcode projects, dependency build trees, and caches are
-intentionally excluded.
+- **零数据上报**：Khua 是一款纯粹的离线/本地播放器，绝不搜集、上传或分析用户的播放历史、文件名或行为数据。
+- **纯本地 AI**：语音听写与文本翻译均在 Apple Silicon 原生神经引擎（NPU）上离线完成，网络 URL 播放除拉取对应视频流外，不产生任何隐私外泄行为。详见 [隐私政策](PRIVACY.md)。
 
-Editable Icon Composer source and the deterministic static AppIcon export live
-in [`Design/AppIcon`](Design/AppIcon).
+---
 
-The directory layout separates the Mac product, reusable-source candidates,
-and platform implementations. See [REPOSITORY_LAYOUT.md](REPOSITORY_LAYOUT.md)
-for ownership and build entry points. iPhone and iPad support is planned;
-only the Mac product currently builds, and no mobile app target is included.
+## 📄 开源许可
 
-## Distribution
+Khua Player 自身代码采用 [MIT 许可证](LICENSE) 开源。
 
-Local builds use ad-hoc signing. Developer ID releases and App Store archives
-use separate, fail-closed signing configurations; see
-[RELEASING.md](RELEASING.md). Release identity, version, bundle identifier, and
-Apple Developer Team values must be supplied explicitly by the distributor.
-The primary direct download is a signed, notarized, and stapled DMG with an
-Applications shortcut. Generated apps, DMGs, ZIPs, archives, and symbols stay
-outside Git history and are published through the release host.
-
-Direct-distribution builds contain configuration-gated Sparkle support. Without
-both `KHUA_SPARKLE_FEED_URL` and `KHUA_SPARKLE_PUBLIC_ED_KEY`, the updater does
-not load, create a menu item, or make a network request. App Store builds omit
-Sparkle and its configuration entirely. Configured direct builds check
-automatically by default and expose an App-menu toggle to disable that behavior.
-
-## Privacy and licensing
-
-The application does not collect or transmit playback data. See
-[PRIVACY.md](PRIVACY.md) for the current behavior.
-
-Khua's own source code is available under the [MIT License](LICENSE).
-Third-party components retain their own licenses; see
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and
-[`ThirdParty/Licenses`](ThirdParty/Licenses). Distributors are responsible for
-satisfying all third-party license obligations.
+各第三方组件（FFmpeg、dav1d、libass、Freetype、HarfBuzz、FriBidi 等）保留其各自的开源许可证声明，详见 [第三方开源组件公告](THIRD_PARTY_NOTICES.md) 与 [`ThirdParty/Licenses`](ThirdParty/Licenses)。
